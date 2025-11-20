@@ -14,12 +14,11 @@ const MapboxMapView: React.FC<MapboxMapViewProps> = ({ onFeatureClick }) => {
 	useEffect(() => {
 		if (!mapContainerRef.current) return;
 
-		// ★ アクセストークン
 		mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
 		const map = new mapboxgl.Map({
 			container: mapContainerRef.current,
-			style: "mapbox://styles/mapbox/dark-v11", // ダークベース
+			style: "mapbox://styles/mapbox/dark-v11",
 			center: [141.354046, 43.059231],
 			zoom: 10,
 		});
@@ -38,22 +37,65 @@ const MapboxMapView: React.FC<MapboxMapViewProps> = ({ onFeatureClick }) => {
 			console.log("Mapbox map loaded");
 
 			// ---- yakisuna tileset ----
-			// tileset ID: shinyaore.4ifb9oa2
 			map.addSource("yakisuna", {
 				type: "vector",
 				url: "mapbox://shinyaore.4ifb9oa2",
 			});
-			// Snow Depth 6-hour forecast（Japan Weather Layers）
-			map.addSource("snow-depth-6h", {
-				type: "vector",
-				tiles: [
-					`https://api.mapbox.com/v4/mapbox.weather-jp-snow-6h/{z}/{x}/{y}.mvt?access_token=${mapboxgl.accessToken}`,
-				],
-				minzoom: 0,
-				maxzoom: 12,
-			});
 
-			// ★ここは tippecanoe で作ったレイヤ名に合わせる（eniwa / muroran / sapporo）
+			// ---- Snow Depth for Japan - 6 Hour Forecast ----
+			// RasterArray tileset を raster-array source として追加
+			map.addSource("snow-depth-6h", {
+				// 型定義がまだ追いついてない可能性があるので any キャスト
+				type: "raster-array" as any,
+				url: "mapbox://mapbox.weather-jp-snowdepth",
+				tileSize: 512,
+			} as any);
+
+			// raster-array を raster レイヤーで可視化
+			map.addLayer({
+				id: "snowdepth",
+				type: "raster",
+				source: "snow-depth-6h",
+				"source-layer": "snowdepth", // ログに出ていたレイヤ ID
+
+				paint: {
+					// 透明度
+					"raster-opacity": 0.8,
+					// 値（["raster-value"]）→ 色マップ
+					"raster-color": [
+						"interpolate",
+						["linear"],
+						["raster-value"],
+						0.0,
+						"rgba(0,0,0,0)", // 積雪 0 は透明
+						0.05,
+						"#e0f2fe",
+						0.2,
+						"#7dd3fc",
+						0.5,
+						"#0ea5e9",
+						1.0,
+						"#0369a1",
+						2.0,
+						"#0b1120",
+					],
+					// データレンジ（だいたい 0〜数 m 程度なので 0〜2m に仮設定）
+					"raster-color-range": [0, 2],
+					"raster-resampling": "linear",
+				} as any,
+			} as any);
+
+			map.addLayer({
+				id: "sapporo-circle",
+				type: "circle",
+				source: "yakisuna",
+				"source-layer": "yakisuna_sapporo2018ndgeojson",
+				paint: {
+					...baseCirclePaint,
+					"circle-color": "#e879f9",
+				},
+			});
+			// ---- yakisuna ポイント ----
 			map.addLayer({
 				id: "eniwa-circle",
 				type: "circle",
@@ -76,44 +118,7 @@ const MapboxMapView: React.FC<MapboxMapViewProps> = ({ onFeatureClick }) => {
 				},
 			});
 
-			map.addLayer({
-				id: "sapporo-circle",
-				type: "circle",
-				source: "yakisuna",
-				"source-layer": "yakisuna_sapporo2018ndgeojson",
-				paint: {
-					...baseCirclePaint,
-					"circle-color": "#e879f9",
-				},
-			});
-			map.addLayer({
-				id: "snow-depth-6h-fill",
-				type: "fill",
-				source: "snow-depth-6h",
-				"source-layer": "snow_depth_6h", // これが layer 名（後で説明）
-				paint: {
-					"fill-color": [
-						"interpolate",
-						["linear"],
-						["get", "depth_cm"], // 属性名 = 積雪深(cm)
-						0,
-						"rgba(0,0,0,0)",
-						1,
-						"#cce4f6",
-						10,
-						"#7ec8f3",
-						30,
-						"#3ba3e6",
-						50,
-						"#1c69d4",
-						100,
-						"#0a3a8d",
-					],
-					"fill-opacity": 0.6,
-				},
-			});
-
-			// yakisuna 範囲にフィット
+			// yakisuna の範囲にフィット
 			map.fitBounds(
 				[
 					[140.923403, 42.303748],
@@ -149,7 +154,7 @@ const MapboxMapView: React.FC<MapboxMapViewProps> = ({ onFeatureClick }) => {
 
 		map.on("sourcedata", (e) => {
 			if (e.sourceId === "snow-depth-6h" && e.isSourceLoaded) {
-				console.log("source loaded", map.getSource("snow-depth-6h"));
+				console.log("snow-depth-6h source loaded", map.getSource("snow-depth-6h"));
 			}
 		});
 
